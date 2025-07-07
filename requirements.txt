@@ -1,5 +1,7 @@
 fastapi
 uvicorn
-yt_dlp
-gtts
 qrcode
+yt-dlp
+gTTS
+pydub
+Pillow
