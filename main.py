@@ -20,6 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
 # -------- QR Code Generator ----------
 @app.get("/generate_qr")
 async def generate_qr(link: str = Query(...)):
