@@ -37,63 +37,63 @@ async def generate_qr(link: str = Query(...)):
 async def download_video(url: str = Query(...), quality: str = Query("best")):
     vid_id = str(uuid.uuid4())
     
-    # Determine file extension and format options based on quality request
+    # Set file extension and yt-dlp options
     if quality == "audio":
         extension = "mp3"
-        format_options = {
+        ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '192',
             }],
+            'outtmpl': f'{vid_id}.%(ext)s',
         }
     else:
         extension = "mp4"
-        if quality == "best":
-            format_options = {'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'}
-        elif quality == "720p":
-            format_options = {'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'}
-        elif quality == "480p":
-            format_options = {'format': 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'}
-        else:
-            format_options = {'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'}
-
-    filename = f"{vid_id}.{extension}"
-
-    options = {
-        'outtmpl': filename,
-        'quiet': True,
-        'no_warnings': True,
-        'restrictfilenames': True,
-        **format_options
-    }
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+            'outtmpl': f'{vid_id}.%(ext)s',
+        }
 
     try:
-        with yt_dlp.YoutubeDL(options) as ydl:
-            # First validate the URL
-            info_dict = ydl.extract_info(url, download=False)
-            if not info_dict:
-                return {"error": "Could not extract video information"}
-            
-            # Then download
+        # First validate URL
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return JSONResponse({"error": "Invalid URL or video unavailable"}, status_code=400)
+
+        # Then download
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
             
-            if not os.path.exists(filename):
-                return {"error": "Download failed - no file created"}
+        # Verify file exists and has content
+        filename = f"{vid_id}.{extension}"
+        if not os.path.exists(filename) or os.path.getsize(filename) == 0:
+            raise Exception("Downloaded file is empty")
 
-        return FileResponse(
-            filename,
+        # Use streaming response for large files
+        def cleanup():
+            try:
+                if os.path.exists(filename):
+                    os.remove(filename)
+            except:
+                pass
+
+        return StreamingResponse(
+            open(filename, "rb"),
             media_type="audio/mpeg" if quality == "audio" else "video/mp4",
-            filename=f"{info_dict.get('title', 'download')}.{extension}",
-            background=BackgroundTask(os.remove, filename)
+            headers={
+                "Content-Disposition": f'attachment; filename="{info.get("title", "video")}.{extension}"'
+            },
+            background=BackgroundTask(cleanup)
         )
-    except yt_dlp.utils.DownloadError as e:
-        return {"error": f"Download failed: {str(e)}"}
-    except yt_dlp.utils.ExtractorError as e:
-        return {"error": f"Extraction failed: {str(e)}"}
+
     except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
+        return JSONResponse(
+            {"error": f"Download failed: {str(e)}"},
+            status_code=500
+        )
     
 # -------- Text-to-Speech (TTS) ----------
 @app.get("/text_to_speech")
