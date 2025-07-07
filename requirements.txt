@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+yt_dlp
+gtts
+qrcode
