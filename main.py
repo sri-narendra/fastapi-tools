@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.background import BackgroundTask
 
@@ -12,10 +12,10 @@ from gtts import gTTS
 
 app = FastAPI()
 
-# Enable CORS for all domains (for development)
+# Enable CORS for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with specific origins in production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -36,10 +36,11 @@ async def generate_qr(link: str = Query(...)):
         background=BackgroundTask(os.remove, filename)
     )
 
-# -------- YouTube Video Downloader ----------
+# -------- YouTube Downloader ----------
 @app.get("/download_video")
 async def download_video(url: str = Query(...), quality: str = Query("best")):
     vid_id = str(uuid.uuid4())
+    filename = ""
 
     if quality == "audio":
         filename = f"{vid_id}.mp3"
@@ -66,7 +67,7 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             'merge_output_format': 'mp4',
             'outtmpl': filename,
         }
-    else:  # default best
+    else:
         filename = f"{vid_id}.mp4"
         ydl_opts = {
             'format': 'best',
@@ -86,10 +87,9 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
     except Exception as e:
         return JSONResponse({"error": f"Download failed: {str(e)}"}, status_code=500)
 
-    
 # -------- Text-to-Speech (TTS) ----------
 @app.get("/text_to_speech")
-async def text_to_speech(text: str = Query(...), format: str = Query("mp3"), preview: bool = Query(False)):
+async def text_to_speech(text: str = Query(...), format: str = Query("mp3")):
     tts_id = str(uuid.uuid4())
     filename = f"{tts_id}.{format}"
 
@@ -103,4 +103,4 @@ async def text_to_speech(text: str = Query(...), format: str = Query("mp3"), pre
             background=BackgroundTask(os.remove, filename)
         )
     except Exception as e:
-        return {"error": str(e)}
+        return JSONResponse({"error": str(e)}, status_code=500)
