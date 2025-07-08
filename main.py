@@ -52,6 +52,8 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
                 'preferredquality': '192',
             }],
             'outtmpl': filename,
+            'socket_timeout': 60,
+            'verbose': True,
         }
     elif quality == "720p":
         filename = f"{vid_id}.mp4"
@@ -59,6 +61,8 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             'format': 'bestvideo[height<=720]+bestaudio/best',
             'merge_output_format': 'mp4',
             'outtmpl': filename,
+            'socket_timeout': 60,
+            'verbose': True,
         }
     elif quality == "480p":
         filename = f"{vid_id}.mp4"
@@ -66,12 +70,16 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             'format': 'bestvideo[height<=480]+bestaudio/best',
             'merge_output_format': 'mp4',
             'outtmpl': filename,
+            'socket_timeout': 60,
+            'verbose': True,
         }
     else:
         filename = f"{vid_id}.mp4"
         ydl_opts = {
             'format': 'best',
             'outtmpl': filename,
+            'socket_timeout': 60,
+            'verbose': True,
         }
 
     try:
