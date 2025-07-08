@@ -40,64 +40,52 @@ async def generate_qr(link: str = Query(...)):
 @app.get("/download_video")
 async def download_video(url: str = Query(...), quality: str = Query("best")):
     vid_id = str(uuid.uuid4())
-    
-    # Set file extension and yt-dlp options
+
     if quality == "audio":
-        extension = "mp3"
+        filename = f"{vid_id}.mp3"
         ydl_opts = {
             'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
+                'preferredquality': '192',
             }],
-            'outtmpl': f'{vid_id}.%(ext)s',
+            'outtmpl': filename,
         }
-    else:
-        extension = "mp4"
+    elif quality == "720p":
+        filename = f"{vid_id}.mp4"
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[height<=720]+bestaudio/best',
             'merge_output_format': 'mp4',
-            'outtmpl': f'{vid_id}.%(ext)s',
+            'outtmpl': filename,
+        }
+    elif quality == "480p":
+        filename = f"{vid_id}.mp4"
+        ydl_opts = {
+            'format': 'bestvideo[height<=480]+bestaudio/best',
+            'merge_output_format': 'mp4',
+            'outtmpl': filename,
+        }
+    else:  # default best
+        filename = f"{vid_id}.mp4"
+        ydl_opts = {
+            'format': 'best',
+            'outtmpl': filename,
         }
 
     try:
-        # First validate URL
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return JSONResponse({"error": "Invalid URL or video unavailable"}, status_code=400)
-
-        # Then download
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-            
-        # Verify file exists and has content
-        filename = f"{vid_id}.{extension}"
-        if not os.path.exists(filename) or os.path.getsize(filename) == 0:
-            raise Exception("Downloaded file is empty")
 
-        # Use streaming response for large files
-        def cleanup():
-            try:
-                if os.path.exists(filename):
-                    os.remove(filename)
-            except:
-                pass
-
-        return StreamingResponse(
-            open(filename, "rb"),
+        return FileResponse(
+            filename,
             media_type="audio/mpeg" if quality == "audio" else "video/mp4",
-            headers={
-                "Content-Disposition": f'attachment; filename="{info.get("title", "video")}.{extension}"'
-            },
-            background=BackgroundTask(cleanup)
+            filename=f"youtube_video.{filename.split('.')[-1]}",
+            background=BackgroundTask(os.remove, filename)
         )
-
     except Exception as e:
-        return JSONResponse(
-            {"error": f"Download failed: {str(e)}"},
-            status_code=500
-        )
+        return JSONResponse({"error": f"Download failed: {str(e)}"}, status_code=500)
+
     
 # -------- Text-to-Speech (TTS) ----------
 @app.get("/text_to_speech")
