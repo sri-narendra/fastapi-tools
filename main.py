@@ -52,8 +52,6 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
                 'preferredquality': '192',
             }],
             'outtmpl': filename,
-            'socket_timeout': 60,
-            'verbose': True,
         }
     elif quality == "720p":
         filename = f"{vid_id}.mp4"
@@ -61,8 +59,6 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             'format': 'bestvideo[height<=720]+bestaudio/best',
             'merge_output_format': 'mp4',
             'outtmpl': filename,
-            'socket_timeout': 60,
-            'verbose': True,
         }
     elif quality == "480p":
         filename = f"{vid_id}.mp4"
@@ -70,16 +66,12 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             'format': 'bestvideo[height<=480]+bestaudio/best',
             'merge_output_format': 'mp4',
             'outtmpl': filename,
-            'socket_timeout': 60,
-            'verbose': True,
         }
     else:
         filename = f"{vid_id}.mp4"
         ydl_opts = {
             'format': 'best',
             'outtmpl': filename,
-            'socket_timeout': 60,
-            'verbose': True,
         }
 
     try:
@@ -93,7 +85,13 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             background=BackgroundTask(os.remove, filename)
         )
     except Exception as e:
-        return JSONResponse({"error": f"Download failed: {str(e)}"}, status_code=500)
+        error_text = str(e).lower()
+        if "sign in" in error_text or "cookies" in error_text:
+            return JSONResponse(
+                {"error": "❌ This video requires login (age-restricted or private). We can't download it without authentication."},
+                status_code=403
+            )
+        return JSONResponse({"error": f"❌ Download failed: {str(e)}"}, status_code=500)
 
 # -------- Text-to-Speech (TTS) ----------
 @app.get("/text_to_speech")
