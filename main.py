@@ -17,18 +17,16 @@ from qrcode.image.styles.colormasks import (
 import hashlib
 import os
 import uuid
-import yt_dlp
-from gtts import gTTS
-from PIL import Image
+from PIL import Image, ImageColor
 from io import BytesIO
 import base64
 
 app = FastAPI()
 
-# Enable CORS for frontend access
+# Enable CORS for all
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # You can restrict this to your frontend URL in production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -37,7 +35,6 @@ app.add_middleware(
 def ping():
     return {"status": "ok"}
 
-# -------- QR Code Generator ----------
 @app.get("/generate_qr")
 async def generate_qr(link: str = Query(...)):
     filename = hashlib.md5(link.encode()).hexdigest() + ".png"
@@ -64,7 +61,7 @@ async def generate_qr_advanced(
     logo_path = None
 
     try:
-        # Handle logo upload
+        # Handle logo
         if logo and logo.filename:
             logo_ext = os.path.splitext(logo.filename)[1].lower()
             if logo_ext not in ['.png', '.jpg', '.jpeg']:
@@ -79,7 +76,7 @@ async def generate_qr_advanced(
                 img.thumbnail((100, 100))
                 img.save(logo_path)
 
-        # Create QR code
+        # Generate QR
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -89,7 +86,7 @@ async def generate_qr_advanced(
         qr.add_data(text)
         qr.make(fit=True)
 
-        # Choose module drawer
+        # Style
         if style == "rounded":
             module_drawer = RoundedModuleDrawer()
         elif style == "circle":
@@ -97,33 +94,35 @@ async def generate_qr_advanced(
         else:
             module_drawer = SquareModuleDrawer()
 
-        # Handle gradient selection
+        # Convert colors
+        try:
+            fill_rgb = ImageColor.getrgb(fill_color)
+            back_rgb = ImageColor.getrgb(back_color)
+        except ValueError:
+            return JSONResponse({"error": "Invalid color format"}, status_code=400)
+
+        # Gradient
         color_mask = None
         if gradient == "radial":
             color_mask = RadialGradiantColorMask(
-                back_color=back_color,
-                center_color=fill_color,
-                edge_color=fill_color
+                back_color=back_rgb,
+                center_color=fill_rgb,
+                edge_color=fill_rgb
             )
         elif gradient == "square":
             color_mask = SquareGradiantColorMask(
-                back_color=back_color,
-                center_color=fill_color,
-                edge_color=fill_color
+                back_color=back_rgb,
+                center_color=fill_rgb,
+                edge_color=fill_rgb
             )
 
-        # Safely build make_image args
-        make_image_args = {
-            "image_factory": StyledPilImage,
-            "module_drawer": module_drawer,
-        }
-        if color_mask:
-            make_image_args["color_mask"] = color_mask
-        if logo_path:
-            make_image_args["embeded_image_path"] = logo_path
-
-        # Generate image
-        img = qr.make_image(**make_image_args)
+        # Create image
+        img = qr.make_image(
+            image_factory=StyledPilImage,
+            module_drawer=module_drawer,
+            color_mask=color_mask,
+            embeded_image_path=logo_path if logo_path else None
+        )
 
         img.save(filename)
         buffered = BytesIO()
@@ -135,7 +134,6 @@ async def generate_qr_advanced(
             "image_base64": img_str,
             "filename": filename
         }
-
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
@@ -152,91 +150,3 @@ async def download_qr(filename: str):
         filename="custom_qrcode.png",
         background=BackgroundTask(lambda: os.remove(filename) if os.path.exists(filename) else None)
     )
-
-# -------- YouTube Downloader ----------
-@app.get("/download_video")
-async def download_video(url: str = Query(...), quality: str = Query("best")):
-    vid_id = str(uuid.uuid4())
-    filename = ""
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-
-    if quality == "audio":
-        filename = f"{vid_id}.mp3"
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "outtmpl": filename,
-            "http_headers": headers,
-        }
-    elif quality == "720p":
-        filename = f"{vid_id}.mp4"
-        ydl_opts = {
-            "format": "bestvideo[height<=720]+bestaudio/best",
-            "merge_output_format": "mp4",
-            "outtmpl": filename,
-            "http_headers": headers,
-        }
-    elif quality == "480p":
-        filename = f"{vid_id}.mp4"
-        ydl_opts = {
-            "format": "bestvideo[height<=480]+bestaudio/best",
-            "merge_output_format": "mp4",
-            "outtmpl": filename,
-            "http_headers": headers,
-        }
-    else:
-        filename = f"{vid_id}.mp4"
-        ydl_opts = {
-            "format": "best",
-            "outtmpl": filename,
-            "http_headers": headers,
-        }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.params["socket_timeout"] = 60
-            ydl.download([url])
-
-        return FileResponse(
-            filename,
-            media_type="audio/mpeg" if quality == "audio" else "video/mp4",
-            filename=f"youtube_video.{filename.split('.')[-1]}",
-            background=BackgroundTask(os.remove, filename)
-        )
-    except Exception as e:
-        error_msg = str(e)
-        if "login" in error_msg.lower() or "cookies" in error_msg.lower():
-            return JSONResponse(
-                {"error": "❌ This video requires login (age-restricted or private). We can't download it without authentication."},
-                status_code=403
-            )
-        return JSONResponse({"error": f"Download failed: {error_msg}"}, status_code=500)
-
-# -------- Text-to-Speech (TTS) ----------
-@app.get("/text_to_speech")
-async def text_to_speech(text: str = Query(...), format: str = Query("mp3")):
-    tts_id = str(uuid.uuid4())
-    filename = f"{tts_id}.{format}"
-
-    try:
-        tts = gTTS(text)
-        tts.save(filename)
-        return FileResponse(
-            filename,
-            media_type="audio/mpeg" if format == "mp3" else "audio/wav",
-            filename=f"tts.{format}",
-            background=BackgroundTask(os.remove, filename)
-        )
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
