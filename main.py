@@ -109,12 +109,16 @@ async def generate_qr_advanced(
                 edge_color=fill_color
             )
 
-        img = qr.make_image(
-            image_factory=StyledPilImage,
-            module_drawer=module_drawer,
-            color_mask=color_mask,
-            embeded_image_path=logo_path if logo_path else None
-        )
+        make_image_args = {
+            "image_factory": StyledPilImage,
+            "module_drawer": module_drawer,
+        }
+        if color_mask:
+            make_image_args["color_mask"] = color_mask
+        if logo_path:
+            make_image_args["embeded_image_path"] = logo_path
+        img = qr.make_image(**make_image_args)
+
 
         img.save(filename)
         buffered = BytesIO()
