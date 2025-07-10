@@ -64,6 +64,7 @@ async def generate_qr_advanced(
     logo_path = None
 
     try:
+        # Handle logo upload
         if logo and logo.filename:
             logo_ext = os.path.splitext(logo.filename)[1].lower()
             if logo_ext not in ['.png', '.jpg', '.jpeg']:
@@ -78,6 +79,7 @@ async def generate_qr_advanced(
                 img.thumbnail((100, 100))
                 img.save(logo_path)
 
+        # Create QR code
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -87,6 +89,7 @@ async def generate_qr_advanced(
         qr.add_data(text)
         qr.make(fit=True)
 
+        # Choose module drawer
         if style == "rounded":
             module_drawer = RoundedModuleDrawer()
         elif style == "circle":
@@ -94,6 +97,8 @@ async def generate_qr_advanced(
         else:
             module_drawer = SquareModuleDrawer()
 
+        # Handle gradient selection
+        color_mask = None
         if gradient == "radial":
             color_mask = RadialGradiantColorMask(
                 back_color=back_color,
@@ -106,13 +111,12 @@ async def generate_qr_advanced(
                 center_color=fill_color,
                 edge_color=fill_color
             )
-        else:
-            color_mask = None
 
+        # Generate the image
         img = qr.make_image(
             image_factory=StyledPilImage,
             module_drawer=module_drawer,
-            color_mask=color_mask if color_mask else None,
+            color_mask=color_mask,  # Can be None if no gradient
             embeded_image_path=logo_path if logo_path else None
         )
 
@@ -131,6 +135,7 @@ async def generate_qr_advanced(
     finally:
         if logo_path and os.path.exists(logo_path):
             os.remove(logo_path)
+            
 
 @app.get("/download_qr/{filename}")
 async def download_qr(filename: str):
