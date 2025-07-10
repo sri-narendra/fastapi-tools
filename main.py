@@ -22,14 +22,13 @@ from gtts import gTTS
 from PIL import Image
 from io import BytesIO
 import base64
-import uvicorn
 
 app = FastAPI()
 
-# Enable CORS for your frontend origin
+# Enable CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace '*' with ['https://your-frontend.onrender.com'] in production
+    allow_origins=["*"],  # You can restrict this to your frontend URL in production
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,6 +64,7 @@ async def generate_qr_advanced(
     logo_path = None
 
     try:
+        # Handle logo upload
         if logo and logo.filename:
             logo_ext = os.path.splitext(logo.filename)[1].lower()
             if logo_ext not in ['.png', '.jpg', '.jpeg']:
@@ -79,6 +79,7 @@ async def generate_qr_advanced(
                 img.thumbnail((100, 100))
                 img.save(logo_path)
 
+        # Create QR code
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -88,6 +89,7 @@ async def generate_qr_advanced(
         qr.add_data(text)
         qr.make(fit=True)
 
+        # Choose module drawer
         if style == "rounded":
             module_drawer = RoundedModuleDrawer()
         elif style == "circle":
@@ -95,6 +97,7 @@ async def generate_qr_advanced(
         else:
             module_drawer = SquareModuleDrawer()
 
+        # Handle gradient selection
         color_mask = None
         if gradient == "radial":
             color_mask = RadialGradiantColorMask(
@@ -109,6 +112,7 @@ async def generate_qr_advanced(
                 edge_color=fill_color
             )
 
+        # Safely build make_image args
         make_image_args = {
             "image_factory": StyledPilImage,
             "module_drawer": module_drawer,
@@ -117,8 +121,9 @@ async def generate_qr_advanced(
             make_image_args["color_mask"] = color_mask
         if logo_path:
             make_image_args["embeded_image_path"] = logo_path
-        img = qr.make_image(**make_image_args)
 
+        # Generate image
+        img = qr.make_image(**make_image_args)
 
         img.save(filename)
         buffered = BytesIO()
@@ -130,6 +135,7 @@ async def generate_qr_advanced(
             "image_base64": img_str,
             "filename": filename
         }
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
@@ -173,11 +179,18 @@ async def download_video(url: str = Query(...), quality: str = Query("best")):
             "outtmpl": filename,
             "http_headers": headers,
         }
-    elif quality in ["720p", "480p"]:
-        resolution = 720 if quality == "720p" else 480
+    elif quality == "720p":
         filename = f"{vid_id}.mp4"
         ydl_opts = {
-            "format": f"bestvideo[height<={resolution}]+bestaudio/best",
+            "format": "bestvideo[height<=720]+bestaudio/best",
+            "merge_output_format": "mp4",
+            "outtmpl": filename,
+            "http_headers": headers,
+        }
+    elif quality == "480p":
+        filename = f"{vid_id}.mp4"
+        ydl_opts = {
+            "format": "bestvideo[height<=480]+bestaudio/best",
             "merge_output_format": "mp4",
             "outtmpl": filename,
             "http_headers": headers,
@@ -227,9 +240,3 @@ async def text_to_speech(text: str = Query(...), format: str = Query("mp3")):
         )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
-
-# -------- Uvicorn startup (for Render) ----------
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8000))  # Render sets PORT env
-    uvicorn.run(app, host="0.0.0.0", port=port)
