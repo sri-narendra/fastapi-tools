@@ -1,14 +1,27 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.background import BackgroundTask
-
+from typing import Optional
 import qrcode
+from qrcode.image.styledpil import StyledPilImage
+from qrcode.image.styles.moduledrawers import (
+    RoundedModuleDrawer, 
+    SquareModuleDrawer, 
+    CircleModuleDrawer
+)
+from qrcode.image.styles.colormasks import (
+    RadialGradiantColorMask, 
+    SquareGradiantColorMask
+)
 import hashlib
 import os
 import uuid
 import yt_dlp
 from gtts import gTTS
+from PIL import Image
+from io import BytesIO
+import base64
 
 app = FastAPI()
 
@@ -34,6 +47,112 @@ async def generate_qr(link: str = Query(...)):
         media_type="image/png",
         filename="qrcode.png",
         background=BackgroundTask(os.remove, filename)
+    )
+
+@app.post("/generate_qr_advanced")
+async def generate_qr_advanced(
+    text: str = Form(...),
+    size: int = Form(10),
+    border: int = Form(1),
+    fill_color: str = Form("black"),
+    back_color: str = Form("white"),
+    style: str = Form("square"),
+    gradient: str = Form("none"),
+    logo: UploadFile = File(None)
+):
+    filename = f"qr_{hashlib.md5(text.encode()).hexdigest()}.png"
+    logo_path = None
+    
+    try:
+        # Save and process logo if provided
+        if logo and logo.filename:
+            logo_ext = os.path.splitext(logo.filename)[1].lower()
+            if logo_ext not in ['.png', '.jpg', '.jpeg']:
+                return JSONResponse(
+                    {"error": "Logo must be a PNG or JPG image"},
+                    status_code=400
+                )
+            
+            logo_path = f"temp_logo_{uuid.uuid4().hex}{logo_ext}"
+            with open(logo_path, "wb") as buffer:
+                buffer.write(await logo.read())
+            
+            # Resize logo to appropriate size
+            with Image.open(logo_path) as img:
+                max_size = (100, 100)
+                img.thumbnail(max_size)
+                img.save(logo_path)
+
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=size,
+            border=border,
+        )
+        qr.add_data(text)
+        qr.make(fit=True)
+        
+        # Choose module drawer
+        if style == "rounded":
+            module_drawer = RoundedModuleDrawer()
+        elif style == "circle":
+            module_drawer = CircleModuleDrawer()
+        else:
+            module_drawer = SquareModuleDrawer()
+        
+        # Choose color mask
+        if gradient == "radial":
+            color_mask = RadialGradiantColorMask(
+                back_color=back_color,
+                center_color=fill_color,
+                edge_color=fill_color
+            )
+        elif gradient == "square":
+            color_mask = SquareGradiantColorMask(
+                back_color=back_color,
+                center_color=fill_color,
+                edge_color=fill_color
+            )
+        else:
+            color_mask = None
+        
+        # Create QR code
+        img = qr.make_image(
+            image_factory=StyledPilImage,
+            module_drawer=module_drawer,
+            color_mask=color_mask if color_mask else None,
+            embeded_image_path=logo_path if logo_path else None
+        )
+        
+        img.save(filename)
+        
+        # Convert to base64 for preview
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        
+        return {
+            "image_url": f"/download_qr/{filename}",
+            "image_base64": img_str,
+            "filename": filename
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        # Cleanup temporary files
+        if logo_path and os.path.exists(logo_path):
+            os.remove(logo_path)
+
+@app.get("/download_qr/{filename}")
+async def download_qr(filename: str):
+    if not os.path.exists(filename):
+        return JSONResponse({"error": "File not found"}, status_code=404)
+    
+    return FileResponse(
+        filename,
+        media_type="image/png",
+        filename="custom_qrcode.png",
+        background=BackgroundTask(lambda: os.remove(filename) if os.path.exists(filename) else None
     )
 
 # -------- YouTube Downloader ----------
