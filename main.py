@@ -61,22 +61,21 @@ async def generate_qr_advanced(
     logo_path = None
 
     try:
-        # Handle logo
+        # Logo handling
         if logo and logo.filename:
             logo_ext = os.path.splitext(logo.filename)[1].lower()
             if logo_ext not in ['.png', '.jpg', '.jpeg']:
-                return JSONResponse(
-                    {"error": "Logo must be a PNG or JPG image"},
-                    status_code=400
-                )
+                return JSONResponse({"error": "Logo must be a PNG or JPG image"}, status_code=400)
+
             logo_path = f"temp_logo_{uuid.uuid4().hex}{logo_ext}"
             with open(logo_path, "wb") as buffer:
                 buffer.write(await logo.read())
+
             with Image.open(logo_path) as img:
                 img.thumbnail((100, 100))
                 img.save(logo_path)
 
-        # Generate QR
+        # QR code setup
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -86,7 +85,7 @@ async def generate_qr_advanced(
         qr.add_data(text)
         qr.make(fit=True)
 
-        # Style
+        # Module drawer
         if style == "rounded":
             module_drawer = RoundedModuleDrawer()
         elif style == "circle":
@@ -94,20 +93,25 @@ async def generate_qr_advanced(
         else:
             module_drawer = SquareModuleDrawer()
 
-        # Convert colors
+        # Convert hex/color names to RGB tuples
         try:
             fill_rgb = ImageColor.getrgb(fill_color)
             back_rgb = ImageColor.getrgb(back_color)
         except ValueError:
             return JSONResponse({"error": "Invalid color format"}, status_code=400)
 
-        # Gradient
-        color_mask = None
+        # Handle color/gradient
         if gradient == "radial":
             color_mask = RadialGradiantColorMask(
                 back_color=back_rgb,
                 center_color=fill_rgb,
                 edge_color=fill_rgb
+            )
+            img = qr.make_image(
+                image_factory=StyledPilImage,
+                module_drawer=module_drawer,
+                color_mask=color_mask,
+                embeded_image_path=logo_path if logo_path else None
             )
         elif gradient == "square":
             color_mask = SquareGradiantColorMask(
@@ -115,14 +119,21 @@ async def generate_qr_advanced(
                 center_color=fill_rgb,
                 edge_color=fill_rgb
             )
-
-        # Create image
-        img = qr.make_image(
-            image_factory=StyledPilImage,
-            module_drawer=module_drawer,
-            color_mask=color_mask,
-            embeded_image_path=logo_path if logo_path else None
-        )
+            img = qr.make_image(
+                image_factory=StyledPilImage,
+                module_drawer=module_drawer,
+                color_mask=color_mask,
+                embeded_image_path=logo_path if logo_path else None
+            )
+        else:
+            # Solid color case
+            img = qr.make_image(
+                image_factory=StyledPilImage,
+                module_drawer=module_drawer,
+                fill_color=fill_rgb,
+                back_color=back_rgb,
+                embeded_image_path=logo_path if logo_path else None
+            )
 
         img.save(filename)
         buffered = BytesIO()
@@ -134,6 +145,7 @@ async def generate_qr_advanced(
             "image_base64": img_str,
             "filename": filename
         }
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
