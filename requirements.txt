@@ -1,5 +1,5 @@
-fastapi>=0.68.0
-uvicorn>=0.15.0
-httpx>=0.19.0
-qrcode[pillow]>=7.3.1
-gtts>=2.3.1
+fastapi
+uvicorn
+httpx
+qrcode[pil]
+gtts
