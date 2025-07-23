@@ -6,6 +6,7 @@ import os
 import uuid
 import json
 import sys
+from datetime import datetime
 
 app = FastAPI()
 
@@ -16,6 +17,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/ping")
+def ping():
+    """Endpoint for health checks and keeping service alive"""
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "QR Code Generator Orchestrator"
+    }
 
 async def install_requirements():
     """Install required Python packages"""
