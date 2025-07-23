@@ -8,13 +8,15 @@ import json
 
 app = FastAPI()
 
-# CORS: allow GitHub Pages
+# CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for dev, you can restrict later
+    allow_origins=["https://sri-narendra.github.io"],  # allow your frontend
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.post("/run/")
 async def run_code(request: Request):
