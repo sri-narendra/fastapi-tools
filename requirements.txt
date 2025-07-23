@@ -1,9 +1,3 @@
 fastapi
 uvicorn
-yt-dlp
-gTTS
-qrcode
-Pillow
-starlette
-python-multipart
-python-dotenv
+httpx
