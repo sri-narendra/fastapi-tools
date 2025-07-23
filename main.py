@@ -5,6 +5,7 @@ import subprocess
 import os
 import uuid
 import json
+import sys
 
 app = FastAPI()
 
@@ -16,9 +17,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def install_requirements():
+    """Install required Python packages"""
+    requirements = ["qrcode[pil]", "pillow"]
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", *requirements],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"Requirements installation failed: {result.stderr}")
+    except Exception as e:
+        print(f"Error installing requirements: {str(e)}")
+
 @app.post("/run/")
 async def run_code(request: Request):
+    temp_file = None
     try:
+        await install_requirements()
+        
         body = await request.json()
         github_repo = body.get("github_repo")
         backend_path = body.get("backend_path")
@@ -27,12 +45,10 @@ async def run_code(request: Request):
         if not github_repo or not backend_path:
             raise HTTPException(400, "Missing github_repo or backend_path")
 
-        # Convert to raw GitHub URL (fixed version)
+        # Convert to raw GitHub URL
         repo_path = github_repo.replace("https://github.com/", "").replace("/tree/", "")
         raw_url = f"https://raw.githubusercontent.com/{repo_path}/main{backend_path}"
         
-        print(f"Fetching from: {raw_url}")  # Debug logging
-
         # Download the script
         async with httpx.AsyncClient() as client:
             response = await client.get(raw_url)
@@ -47,7 +63,7 @@ async def run_code(request: Request):
 
         # Execute the script
         result = subprocess.run(
-            ["python", temp_file],
+            [sys.executable, temp_file],
             input=json.dumps(input_data),
             capture_output=True,
             text=True,
@@ -62,7 +78,7 @@ async def run_code(request: Request):
     except Exception as e:
         raise HTTPException(500, str(e))
     finally:
-        if os.path.exists(temp_file):
+        if temp_file and os.path.exists(temp_file):
             os.remove(temp_file)
 
 if __name__ == "__main__":
