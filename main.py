@@ -8,10 +8,10 @@ import json
 
 app = FastAPI()
 
-# Allow requests from GitHub Pages
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development, restrict to your domain later
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -27,17 +27,17 @@ async def run_code(request: Request):
         if not github_repo or not backend_path:
             raise HTTPException(400, "Missing github_repo or backend_path")
 
-        # Convert to raw GitHub URL
-        raw_url = github_repo.replace(
-            "github.com", 
-            "raw.githubusercontent.com"
-        ).replace("/tree/", "/") + backend_path
+        # Convert to raw GitHub URL (fixed version)
+        repo_path = github_repo.replace("https://github.com/", "").replace("/tree/", "")
+        raw_url = f"https://raw.githubusercontent.com/{repo_path}/main{backend_path}"
+        
+        print(f"Fetching from: {raw_url}")  # Debug logging
 
-        # Download the Python script
+        # Download the script
         async with httpx.AsyncClient() as client:
             response = await client.get(raw_url)
             if response.status_code != 200:
-                raise HTTPException(400, f"Failed to fetch script: {response.text}")
+                raise HTTPException(400, f"Failed to fetch script: HTTP {response.status_code}")
             code = response.text
 
         # Save to temporary file
@@ -65,7 +65,6 @@ async def run_code(request: Request):
         if os.path.exists(temp_file):
             os.remove(temp_file)
 
-# For Render deployment
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=10000)
