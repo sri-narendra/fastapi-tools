@@ -1,164 +1,62 @@
-from fastapi import FastAPI, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.background import BackgroundTask
-from typing import Optional
-import qrcode
-from qrcode.image.styledpil import StyledPilImage
-from qrcode.image.styles.moduledrawers import (
-    RoundedModuleDrawer, 
-    SquareModuleDrawer, 
-    CircleModuleDrawer
-)
-from qrcode.image.styles.colormasks import (
-    RadialGradiantColorMask, 
-    SquareGradiantColorMask
-)
-import hashlib
+# main.py
+from fastapi import FastAPI, Request, HTTPException
+import httpx
+import subprocess
 import os
 import uuid
-from PIL import Image, ImageColor
-from io import BytesIO
-import base64
+import json
+import asyncio
 
 app = FastAPI()
 
-# Enable CORS for all
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.post("/run/")
+async def run_dynamic_code(request: Request):
+    payload = await request.json()
+    github_repo = payload.get("github_repo")
+    backend_path = payload.get("backend_path")
+    input_data = payload.get("input_data", {})
 
-@app.get("/ping")
-def ping():
-    return {"status": "ok"}
+    # Validate input
+    if not github_repo or not backend_path:
+        raise HTTPException(400, detail="Missing 'github_repo' or 'backend_path'")
 
-@app.get("/generate_qr")
-async def generate_qr(link: str = Query(...)):
-    filename = hashlib.md5(link.encode()).hexdigest() + ".png"
-    qrcode.make(link).save(filename)
-    return FileResponse(
-        filename,
-        media_type="image/png",
-        filename="qrcode.png",
-        background=BackgroundTask(os.remove, filename)
-    )
+    # OPTIONAL: Whitelist your repos only
+    if not github_repo.startswith("https://github.com/sri-narendra/"):
+        raise HTTPException(403, detail="Repo not allowed")
 
-@app.post("/generate_qr_advanced")
-async def generate_qr_advanced(
-    text: str = Form(...),
-    size: int = Form(10),
-    border: int = Form(1),
-    fill_color: str = Form("black"),
-    back_color: str = Form("white"),
-    style: str = Form("square"),
-    gradient: str = Form("none"),
-    logo: UploadFile = File(None)
-):
-    filename = f"qr_{hashlib.md5(text.encode()).hexdigest()}.png"
-    logo_path = None
+    # Convert to raw URL
+    raw_url = github_repo.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/") + backend_path
 
+    # Fetch code
+    async with httpx.AsyncClient() as client:
+        res = await client.get(raw_url)
+        if res.status_code != 200:
+            raise HTTPException(500, detail="Failed to fetch backend code")
+        code = res.text
+
+    # Save to temporary file
+    temp_file = f"/tmp/temp_{uuid.uuid4().hex}.py"
+    with open(temp_file, "w") as f:
+        f.write(code)
+
+    # Execute
     try:
-        # Logo handling
-        if logo and logo.filename:
-            logo_ext = os.path.splitext(logo.filename)[1].lower()
-            if logo_ext not in ['.png', '.jpg', '.jpeg']:
-                return JSONResponse({"error": "Logo must be a PNG or JPG image"}, status_code=400)
-
-            logo_path = f"temp_logo_{uuid.uuid4().hex}{logo_ext}"
-            with open(logo_path, "wb") as buffer:
-                buffer.write(await logo.read())
-
-            with Image.open(logo_path) as img:
-                img.thumbnail((100, 100))
-                img.save(logo_path)
-
-        # QR code setup
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=size,
-            border=border,
+        proc = await asyncio.create_subprocess_exec(
+            "python", temp_file,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-        qr.add_data(text)
-        qr.make(fit=True)
+        input_str = json.dumps(input_data)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(input=input_str.encode()), timeout=10)
 
-        # Module drawer
-        if style == "rounded":
-            module_drawer = RoundedModuleDrawer()
-        elif style == "circle":
-            module_drawer = CircleModuleDrawer()
-        else:
-            module_drawer = SquareModuleDrawer()
+        if proc.returncode != 0:
+            raise HTTPException(500, detail=stderr.decode())
 
-        # Convert hex/color names to RGB tuples
-        try:
-            fill_rgb = ImageColor.getrgb(fill_color)
-            back_rgb = ImageColor.getrgb(back_color)
-        except ValueError:
-            return JSONResponse({"error": "Invalid color format"}, status_code=400)
+        return {"output": stdout.decode().strip()}
 
-        # Handle color/gradient
-        if gradient == "radial":
-            color_mask = RadialGradiantColorMask(
-                back_color=back_rgb,
-                center_color=fill_rgb,
-                edge_color=fill_rgb
-            )
-            img = qr.make_image(
-                image_factory=StyledPilImage,
-                module_drawer=module_drawer,
-                color_mask=color_mask,
-                embeded_image_path=logo_path if logo_path else None
-            )
-        elif gradient == "square":
-            color_mask = SquareGradiantColorMask(
-                back_color=back_rgb,
-                center_color=fill_rgb,
-                edge_color=fill_rgb
-            )
-            img = qr.make_image(
-                image_factory=StyledPilImage,
-                module_drawer=module_drawer,
-                color_mask=color_mask,
-                embeded_image_path=logo_path if logo_path else None
-            )
-        else:
-            # Solid color case
-            img = qr.make_image(
-                image_factory=StyledPilImage,
-                module_drawer=module_drawer,
-                fill_color=fill_rgb,
-                back_color=back_rgb,
-                embeded_image_path=logo_path if logo_path else None
-            )
-
-        img.save(filename)
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-
-        return {
-            "image_url": f"/download_qr/{filename}",
-            "image_base64": img_str,
-            "filename": filename
-        }
-
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="Execution timed out")
     finally:
-        if logo_path and os.path.exists(logo_path):
-            os.remove(logo_path)
-
-@app.get("/download_qr/{filename}")
-async def download_qr(filename: str):
-    if not os.path.exists(filename):
-        return JSONResponse({"error": "File not found"}, status_code=404)
-    return FileResponse(
-        filename,
-        media_type="image/png",
-        filename="custom_qrcode.png",
-        background=BackgroundTask(lambda: os.remove(filename) if os.path.exists(filename) else None)
-    )
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
