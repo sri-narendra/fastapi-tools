@@ -24,29 +24,13 @@ def ping():
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
-        "service": "QR Code Generator Orchestrator"
+        "service": "Multi-Service Orchestrator"
     }
-
-async def install_requirements():
-    """Install required Python packages"""
-    requirements = ["qrcode[pil]", "pillow"]
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", *requirements],
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0:
-            print(f"Requirements installation failed: {result.stderr}")
-    except Exception as e:
-        print(f"Error installing requirements: {str(e)}")
 
 @app.post("/run/")
 async def run_code(request: Request):
     temp_file = None
-    try:
-        await install_requirements()
-        
+    try:        
         body = await request.json()
         github_repo = body.get("github_repo")
         backend_path = body.get("backend_path")
