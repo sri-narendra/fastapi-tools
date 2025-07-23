@@ -1,62 +1,54 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-import httpx
-import subprocess
-import os
-import uuid
-import json
+import httpx, subprocess, os, uuid
 
 app = FastAPI()
 
-# CORS setup
+# Allow frontend GitHub Pages domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://sri-narendra.github.io"],  # allow your frontend
+    allow_origins=["https://sri-narendra.github.io"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 @app.post("/run/")
-async def run_code(request: Request):
-    body = await request.json()
-    github_repo = body.get("github_repo")
-    backend_path = body.get("backend_path")
-    input_data = body.get("input_data", {})
+async def run_backend(data: dict):
+    github_repo = data.get("github_repo")
+    backend_path = data.get("backend_path")
+    input_data = data.get("input_data", {})
 
     if not github_repo or not backend_path:
-        raise HTTPException(400, "Missing repo or path")
+        raise HTTPException(400, "Missing repo or backend path")
 
-    # Convert to raw URL
-    raw_url = github_repo.replace("github.com", "raw.githubusercontent.com").replace("/tree/", "/") + backend_path
+    # Convert to raw URL (with /main/ assumed)
+    raw_url = github_repo.replace("github.com", "raw.githubusercontent.com") + backend_path
 
+    # Fetch backend script
     async with httpx.AsyncClient() as client:
-        response = await client.get(raw_url)
-        if response.status_code != 200:
+        r = await client.get(raw_url)
+        if r.status_code != 200:
             raise HTTPException(400, "Could not fetch backend file")
+        code = r.text
 
-        code = response.text
-
-    file_path = f"/tmp/{uuid.uuid4().hex}.py"
+    # Save to temp file
+    file_id = str(uuid.uuid4())
+    file_path = f"temp_{file_id}.py"
     with open(file_path, "w") as f:
         f.write(code)
 
+    # Run with subprocess
     try:
         result = subprocess.run(
-            ["python", file_path],
-            input=json.dumps(input_data),
+            ["python3", file_path],
+            input=str(input_data),
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=10
         )
-
-        if result.returncode != 0:
-            return {"error": result.stderr.strip()}
-
         return {"output": result.stdout.strip()}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(500, f"Execution failed: {e}")
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        os.remove(file_path)
